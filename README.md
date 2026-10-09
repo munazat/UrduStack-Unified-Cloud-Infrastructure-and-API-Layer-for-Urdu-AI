@@ -147,7 +147,7 @@ Phrases written after training, scored by the model alone. Source:
 | Threat type and advice | Working for 3 types: fake job posting, phishing, harassment. Mapped from flagged phrases, not predicted by the model |
 | Code-switch normalization | 481-word dictionary → character-trigram retrieval over 597 phrases → phonetic fallback. Display only. English words are currently transliterated too |
 | Named entities | `Davlan/xlm-roberta-base-wikiann-ner` on the normalized text. Informational only; quality is uneven |
-| Speech input | Whisper `base` with `language="ur"`; the transcript goes through the same pipeline. Not yet evaluated (no WER) |
+| Speech input | Whisper `base` with `language="ur"`; the transcript goes through the same pipeline. On 50 Urdu test clips from Google FLEURS (`ur_pk`): word error rate 55.1%, character error rate 23.1% (punctuation ignored) |
 | Plain-language explanation | Experimental. 19-word simplification lexicon; currently produces poor output (see limitations) |
 | Feedback | `/feedback` logs corrections to `data/feedback.csv`; `scripts/consume_feedback.py` turns them into a retraining CSV |
 
@@ -326,7 +326,8 @@ python tests/run_adversarial_colab.py     # 12 adversarial cases
 - No input-length limit; explanation re-scores the message once per word, so long inputs are slow.
 - The WhatsApp bot does not validate Twilio signatures and is not deployed as an always-on service.
 - `scripts/consume_feedback.py --merge_into` keeps the existing label when a corrected text is already in the training set.
-- No measured latency, Whisper accuracy or comparison against an LLM yet.
+- Speech-to-text uses the small Whisper `base` model: 55.1% word error rate on 50 FLEURS Urdu clips. FLEURS is clean read speech, so noisy voice notes may do worse. A larger or Urdu-tuned Whisper model is the planned upgrade.
+- No measured latency or comparison against an LLM yet.
 
 ## Roadmap
 
@@ -348,6 +349,7 @@ The technical report was written at submission time. Where it differs from this 
 - Of the 11 new-phrase probes, 6 match some rule-layer keywords (report: "none").
 - Two of the 12 adversarial cases score MEDIUM rather than HIGH.
 - The playground has 3 tabs (report: 4); speech confidence is not computed.
+- Speech accuracy was not in the report. Measured later: 55.1% WER, 23.1% CER on 50 FLEURS Urdu test clips.
 
 ## Contributors
 
