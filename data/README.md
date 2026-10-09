@@ -12,7 +12,7 @@ This folder holds the datasets used by UrduStack.
 
 ## Setup
 
-1. Download the datasets manually (the prompt says not to download them during a Qoder run).
+1. Download the datasets manually
 2. Place them in `data/raw/` with the filenames above.
 3. Run `python scripts/build_normalizer_map.py` to generate `data/processed/roman_urdu_freq.json`.
 4. Run `python scripts/train_risk_model.py` in Colab or locally to train the risk-scoring adapter.
