@@ -11,178 +11,153 @@ license: mit
 
 # UrduStack
 
-### Stop Roman-Urdu job scams before the click.
+**Scam and abuse detection for code-switched Pakistani text: Roman Urdu, Urdu script and English, often in the same message.**
 
-UrduStack is a self-hosted, code-switch-aware NLP pipeline that detects scam and toxic content in
-mixed **Urdu script / Roman Urdu / English** text — the way Pakistani digital text is actually
-written — and explains its verdict in plain language, with a specific, actionable next step.
+UrduStack scores a message for scam or toxic content, shows which phrases drove the score, maps it to a threat
+type (fake job posting, phishing or harassment) and returns specific advice. It is self-hostable: a 4.5 MB LoRA
+adapter on the open `xlm-roberta-base` model, with no third-party API calls.
 
-<p>
-  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
-  <img alt="Python 3.11" src="https://img.shields.io/badge/python-3.11-blue.svg">
-  <img alt="F1 87.1%25" src="https://img.shields.io/badge/F1-87.1%25-0f766e.svg">
-  <img alt="Tests 46 passing" src="https://img.shields.io/badge/tests-46%20passing-0f766e.svg">
-</p>
+Built for the Bano Qabil × Alibaba Cloud AI Hackathon 2026 (Urdu & Regional Tech track).
 
-📄 [Full Technical Report](docs/report/UrduStack_Technical_Report.pdf) ·
-📊 [Presentation](docs/presentation/UrduStack_Presentation.pptx) ·
-🖼 [Architecture Diagrams](docs/diagrams/)
+📄 [Technical report](docs/report/UrduStack_Technical_Report.pdf) (see [Report corrections](#report-corrections))
 
 ---
 
-## Table of Contents
+## Contents
 
-- [The Problem](#the-problem)
-- [The Solution](#the-solution)
-- [Why Not Just Ask GPT-4o?](#why-not-just-ask-gpt-4o)
-- [Key Features](#key-features)
-- [How It Works](#how-it-works)
-- [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
-- [Screenshots &amp; Demo](#screenshots--demo)
-- [Getting Started](#getting-started)
-- [API Reference](#api-reference)
-- [Project Structure](#project-structure)
-- [Testing &amp; Validation](#testing--validation)
-- [Real-World Benefits](#real-world-benefits)
-- [Known Limitations](#known-limitations)
+- [The problem](#the-problem)
+- [How it works](#how-it-works)
+- [Results](#results)
+- [Features and their status](#features-and-their-status)
+- [Getting started](#getting-started)
+- [API reference](#api-reference)
+- [Model and data](#model-and-data)
+- [Project structure](#project-structure)
+- [Testing](#testing)
+- [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
+- [Report corrections](#report-corrections)
 - [Contributors](#contributors)
-- [License](#license)
 
 ---
 
-## The Problem
+## The problem
 
-A real scam job posting, seen verbatim during this project's development:
-
-> *"Urgent hiring! 50000 per week, send processing fee to register."*
-
-This sentence is entirely Roman Urdu and English — no Urdu script at all — yet it carries a scam
-pattern any Pakistani reader recognizes instantly: an advance-fee request tied to a fake job. English
-keyword filters miss it, or are trivially evaded with leetspeak (`pr0c3ss1ng f33`), spacing tricks
-(`p r o c e s s i n g   f e e`), or misspellings (`procesing fee`). Fake job postings on Facebook,
-WhatsApp, and OLX target Pakistani students and jobseekers this way, alongside abusive and harassing
-content in the same mixed script.
-
-## The Solution
-
-![Problem to Solution](docs/diagrams/01-problem-solution.svg)
-
-UrduStack normalizes code-switched text into consistent Urdu script first, then classifies it with a
-**LoRA-fine-tuned XLM-RoBERTa model combined with a hardened heuristic layer** — not a keyword list —
-and returns a plain-language explanation plus a specific recommendation. Everything runs on-device.
-
-## Why Not Just Ask GPT-4o?
-
-UrduStack runs on-device with a 4.5 MB LoRA adapter — no API keys, no paid calls per request, no data
-leaving your infrastructure. That matters for harassment reports and scam complaints people don't
-want sent to a third-party API.
-
-| | UrduStack | GPT-4o (via API) |
-|---|---|---|
-| **Model size** | 4.5 MB adapter | Proprietary (billions of params) |
-| **Cost per request** | $0 | ~$0.01–0.03 |
-| **Data stays local** | Yes | No |
-| **Latency** | Sub-second | 1–3 seconds |
-| **Offline capable** | Yes | No |
-| **Roman Urdu slang** | Trained on it | Not head-to-head tested — plausible, not measured |
-
-The LoRA adapter achieves **F1 = 87.1%** (precision 92.5%, recall 82.2%) on the full 107-example test
-set — verified against the real trained adapter, not a mock:
-[`tests/eval_metrics_full_t0.4.json`](tests/eval_metrics_full_t0.4.json). The deployed max-ensemble
-(LoRA + heuristic) passes **12/12** on the original red-team suite, also re-verified against the real
-model: [`tests/adversarial_results_model.csv`](tests/adversarial_results_model.csv). On a separate set
-of novel phrases matching none of the heuristic's keywords, the trained model alone correctly
-generalizes on 7 of 11 — genuine semantic detection, not keyword matching — with 4 open gaps honestly
-tracked, not hidden: [`tests/novel_probe_results.csv`](tests/novel_probe_results.csv).
-
-## Key Features
-
-![Feature Overview](docs/diagrams/06-feature-overview.svg)
-
-| Feature | What it does |
-|---|---|
-| 🔤 **Code-Switch Normalization** | Roman Urdu / English / Urdu script → consistent Urdu script (485-word dictionary + FAISS retrieval + phonetic fallback) |
-| 🛡️ **Explainable Risk Scoring** | LoRA model + 5-pass heuristic ensemble; shows exactly which phrases drove the score |
-| 🏷️ **Multi-Category Threat Type** | Fake job posting, phishing, or harassment — each with specific advice |
-| 👤 **Named Entity Recognition** | PERSON / LOCATION / ORGANIZATION — informational, never gates a safety warning |
-| 🎙️ **Speech-to-Text** | OpenAI Whisper transcribes spoken Urdu into the same pipeline |
-| 💬 **Plain-Language Simplify** | Rewrites the technical verdict into everyday Urdu |
-
-## How It Works
-
-![End-to-End Workflow](docs/diagrams/03-workflow.svg)
-
-1. **Paste a message** — a job ad, WhatsApp forward, or any suspicious text.
-2. **Normalize** — code-switched text becomes consistent Urdu script.
-3. **Risk score** — the max-ensemble flags scam/toxic content with a calibrated confidence.
-4. **Categorize** — fake job posting, phishing, or harassment.
-5. **Simplify & recommend** — a plain-language explanation and a specific next step.
+Scam and harassment messages in Pakistan are usually written the way people actually type: Roman Urdu mixed
+with English, sometimes Urdu script, often with deliberate misspellings.
 
 ```
-Input: "job available 50000 per week send processing fee"
-Output: score 1.00 → HIGH RISK → "Fake Job Posting"
-        → "Legitimate employers never ask for upfront fees.
-           Report the ad. Verify any claimed organization independently."
+job hai bhai 50000 per week fee bhejo
+j0b availabl3, 50000 p3r w33k, s3nd pr0c3ssing f33
+j o b  a v a i l a b l e,  s e n d  p r o c e s s i n g  f e e
 ```
 
-### The Risk-Scoring Ensemble, in Detail
+English keyword filters don't know Roman Urdu vocabulary, and a single zero or space defeats them. Most Urdu NLP
+models expect Urdu script. UrduStack is built for the mixed case.
 
-![ML Pipeline](docs/diagrams/04-ml-pipeline.svg)
+## How it works
 
-Two independent detectors run on every request; the higher score wins. This is verified to matter in
-practice — the trained LoRA model independently drives 8 of the 12 correct scores on the adversarial
-suite, while the heuristic layer catches obfuscation (leetspeak, spacing) the model alone doesn't
-reliably resolve.
+```mermaid
+flowchart LR
+    V[Voice note] -->|Whisper base, language=ur| T
+    I[Text message] --> T[Original text]
+    T --> M[Trained model<br/>XLM-RoBERTa + LoRA]
+    T --> R[Rule layer<br/>leetspeak, spacing, typo<br/>and fuzzy matching]
+    M --> X[Final score =<br/>max of the two]
+    R --> X
+    X --> O[Risk level, score,<br/>top contributing phrases]
+    O --> C[Threat type + advice<br/>mapped from flagged phrases]
+    T -.-> N[Normalize to Urdu script] -.-> E[Named entities]
+```
 
-## System Architecture
+- **Two independent detectors.** The trained model reads the original text (XLM-RoBERTa's pretraining already
+  covers romanized Urdu). The rule layer undoes leetspeak, character spacing and known misspellings, then matches
+  12 scam phrases and 22 abusive or scam words. The final score is the higher of the two, so either can raise the
+  alarm.
+- **Explanations.** Each word's contribution is measured by removing it and re-scoring; the top five are returned,
+  merged with any phrases the rules matched.
+- **Risk levels.** `high` ≥ 0.7, `medium` ≥ 0.4, otherwise `low`. The model's probability is temperature-calibrated
+  (T = 1.41).
+- **Context (dotted lines).** Normalization to Urdu script and named-entity extraction are shown alongside the
+  verdict. They do not affect the score or the advice.
 
-![System Architecture](docs/diagrams/02-system-architecture.svg)
+All three interfaces (website, Gradio playground, WhatsApp bot) use the same scoring code, so they always return
+the same verdict.
 
-One FastAPI process, one `ModelManager` orchestrating lazily-loaded models, four ways in, no
-traditional database — state is file-based (a committed dictionary, a committed FAISS index, and a
-CSV feedback log). See the [full architecture diagram set](docs/diagrams/) and the
-[technical report](docs/report/UrduStack_Technical_Report.pdf) for complete detail.
+## Results
 
-## Technology Stack
+### Evaluation set (107 hand-written messages)
 
-| Layer | Technology |
+Full system (model + rules), threshold 0.4. Source: [`tests/eval_results_full_t0.4.csv`](tests/eval_results_full_t0.4.csv).
+
+| | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Rules only | 79.4% | 92.6% | 55.6% | 69.4% |
+| **Model + rules** | **89.7%** | **92.5%** | **82.2%** | **87.1%** |
+
+Adding the trained model raises recall by 27 points at the same precision. The rules-only row is reproduced by
+scoring [`tests/eval_dataset.csv`](tests/eval_dataset.csv) with `app.utils.risk.compute_risk_score`.
+
+| Category | Correct |
 |---|---|
-| API framework | FastAPI + Pydantic, Uvicorn |
-| ML framework | PyTorch, Hugging Face Transformers, PEFT (LoRA) |
-| Risk model | `xlm-roberta-base` (270M params) + LoRA adapter (4.5 MB) |
-| NER | XLM-RoBERTa fine-tuned on WikiAnn |
-| Speech-to-text | OpenAI Whisper (base) |
-| Retrieval | FAISS (`IndexFlatIP`) + character-trigram TF-IDF |
-| Demo UI | Gradio 6.x (4-tab interface) |
-| Distribution | Flask + Twilio (WhatsApp bot), vanilla JS static site |
-| Testing | pytest (46 unit tests), custom adversarial/regression harnesses |
-| CI | GitHub Actions |
-| Deployment | Docker (`python:3.11-slim`) → Hugging Face Spaces, or Colab T4 GPU |
+| Benign chat | 30 / 32 |
+| Code-switched benign | 10 / 10 |
+| Tricky benign (negation, money talk) | 18 / 19 |
+| Scam (incl. one legitimate job ad) | 22 / 25 |
+| Toxic | 16 / 21 |
 
-## Screenshots & Demo
+Errors: 3 false alarms and 8 misses, all listed in the results CSV.
 
-**The Gradio Playground**, analyzing a real scam message end-to-end — real score, real threat type,
-real phrase-level explanation:
+**How to read these numbers:**
 
-![Gradio playground result](docs/screenshots/04_gradio_result.png)
+- The set is small: 95% confidence interval for accuracy ≈ 82.5–94.2%, for recall ≈ 68.7–90.7%.
+- All messages were written by the team, in Roman Urdu and English only. There are no Urdu-script cases yet.
+- Ten of the messages are the adversarial cases below, and the rule layer was tuned on them. A few scam messages
+  closely resemble the synthetic training templates. Treat this as a development benchmark, not a held-out test.
 
-**The static website**, same verdict, same backend:
+### Adversarial cases (12)
 
-![Static site result](docs/screenshots/02_static_site_result.png)
+Leetspeak, character spacing, misspellings and mixed-script text. Source:
+[`tests/adversarial_results_model.csv`](tests/adversarial_results_model.csv).
 
-### User Journey
+| | Correct |
+|---|---|
+| Model alone | 9 / 12 (misses the leetspeak and letter-spaced cases) |
+| Model + rules | 12 / 12 at threshold 0.4 (10 scored HIGH, 2 MEDIUM) |
 
-![User Journey](docs/diagrams/05-user-journey.svg)
+The rules catch the obfuscated cases because they contain the specific phrases in these tests. Obfuscated versions
+of phrases the rules don't know depend on the model alone.
 
-### Live demo (hackathon submission)
+### New-phrase probe (11)
 
-Open [`notebooks/launch_demo.ipynb`](notebooks/launch_demo.ipynb) in Google Colab, enable the T4 GPU
-runtime, and run all 5 cells. Cell 5 prints a public Gradio URL valid for 72 hours — no login, no
-setup required to try it.
+Phrases written after training, scored by the model alone. Source:
+[`tests/novel_probe_results.csv`](tests/novel_probe_results.csv).
 
-## Getting Started
+- **Caught (7):** a security-deposit scam, a bank-transfer request, an investment scam, an "easy money" offer, and
+  three insults.
+- **Missed (4):** a direct threat (`jaan se maar doonga`, 0.10), a Roman-Urdu fee request
+  (`bhai fee bhej do job pakki hai`, 0.04), a "verification charges" scam (0.18), a gift-card romance scam (0.01).
+
+## Features and their status
+
+| Feature | Status |
+|---|---|
+| Risk scoring (model + rules) | Core feature. Measured above |
+| Phrase-level explanation | Working. Removes each word and re-scores the message |
+| Threat type and advice | Working for 3 types: fake job posting, phishing, harassment. Mapped from flagged phrases, not predicted by the model |
+| Code-switch normalization | 481-word dictionary → character-trigram retrieval over 597 phrases → phonetic fallback. Display only. English words are currently transliterated too |
+| Named entities | `Davlan/xlm-roberta-base-wikiann-ner` on the normalized text. Informational only; quality is uneven |
+| Speech input | Whisper `base` with `language="ur"`; the transcript goes through the same pipeline. Not yet evaluated (no WER) |
+| Plain-language explanation | Experimental. 19-word simplification lexicon; currently produces poor output (see limitations) |
+| Feedback | `/feedback` logs corrections to `data/feedback.csv`; `scripts/consume_feedback.py` turns them into a retraining CSV |
+
+## Getting started
+
+### Live demo in Colab
+
+Open [`notebooks/launch_demo.ipynb`](notebooks/launch_demo.ipynb) in Google Colab, select a T4 GPU runtime and run
+all cells. The trained adapter is already in the repo; the base model, NER model and Whisper download on first use.
+The last cell prints a public Gradio link (valid for 72 hours).
 
 ### Run the API locally
 
@@ -191,28 +166,18 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs for interactive API documentation, or http://127.0.0.1:8000/ for the
-static site.
+Interactive docs at http://127.0.0.1:8000/docs, website at http://127.0.0.1:8000/.
+
+If PyTorch or Transformers are not installed, the API still starts and scores with the rule layer only.
 
 ### Run the Gradio playground
 
 ```bash
-pip install -r requirements.txt
 python playground.py
 ```
 
-Then open http://localhost:7860.
-
-### Run the WhatsApp bot
-
-```bash
-pip install -r requirements.txt
-export TWILIO_AUTH_TOKEN=...        # from your Twilio console
-export URDUSTACK_API_URL=http://127.0.0.1:8000
-python whatsapp_bot.py
-```
-
-See [`whatsapp_bot.py`](whatsapp_bot.py) for the full Twilio sandbox setup (join code, webhook URL).
+Three tabs: Text Analysis, Speech Analysis, and a Comparison against a naive English-keyword baseline.
+Set `SHARE=1` for a public link.
 
 ### Run with Docker
 
@@ -221,146 +186,176 @@ docker build -t urdustack .
 docker run -p 7860:7860 urdustack
 ```
 
-The container exposes port `7860` and runs `app.py`, which mounts the Gradio playground at
-`/playground` alongside the FastAPI routes and the static site at `/`.
+Serves the API and website at `/` and the playground at `/playground`.
+
+### Run the WhatsApp bot (Twilio sandbox)
+
+```bash
+python whatsapp_bot.py   # port 5000; expose with ngrok and set the Twilio webhook to /whatsapp/webhook
+```
+
+The bot runs the scorer in-process. Twilio request-signature validation is not implemented yet.
 
 ### Configuration
 
-| Environment variable | Purpose | Default |
+| Variable | Purpose | Default |
 |---|---|---|
-| `RISK_MODEL_PATH` | Path to the LoRA adapter | `models/risk_lora` |
-| `RISK_TEMPERATURE_PATH` | Path to the calibration temperature file | `models/temperature.txt` |
+| `RISK_MODEL_PATH` | LoRA adapter directory | `models/risk_lora` |
+| `RISK_TEMPERATURE_PATH` | Calibration temperature file | `models/temperature.txt` |
 | `CORS_ALLOW_ORIGINS` | Comma-separated allowed origins | `*` |
-| `TWILIO_AUTH_TOKEN` | WhatsApp bot auth (Twilio) | — |
-| `URDUSTACK_API_URL` | API base URL for the WhatsApp bot / test scripts | `http://localhost:8000` |
+| `SHARE` | Public Gradio link for the playground | off |
+| `TWILIO_FROM` | WhatsApp sender for the bot | Twilio sandbox number |
+| `URDUSTACK_API_URL` | API base URL used by the HTTP test scripts | `http://localhost:8000` |
 
-## API Reference
+## API reference
 
 | Method | Endpoint | Input | Output |
 |---|---|---|---|
-| GET | `/health` | — | `{status, models_loaded}` |
+| GET | `/health` | — | `{status, models_loaded}` (models load on first use) |
 | POST | `/normalize` | `{text}` | `{normalized, confidence, segments}` |
-| POST | `/risk-score` | `{text}` | `{score, confidence, risk_level, flagged_phrases, threat_categories, explanation, debug_scores}` |
-| POST | `/transcribe` | audio file | `{text, confidence}` |
+| POST | `/risk-score` | `{text}` | `{score, confidence, risk_level, flagged_phrases, threat_categories, primary_category, explanation, debug_scores}` |
+| POST | `/transcribe` | audio file | `{text, confidence}` (confidence is not yet computed and is always 0) |
 | POST | `/ner` | `{text}` | `{entities}` |
-| POST | `/simplify` | `{text}` | `{simplified, changes, complexity}` |
-| POST | `/analyze` | `{text}` | Full pipeline (normalize + risk + NER + categorize + simplify + recommend) |
-| POST | `/feedback` | `{text, score, confidence, correct_label, comment}` | `{status}` |
-
-**Example:**
+| POST | `/simplify` | `{text}` | `{simplified, changes, complexity_ratio}` |
+| POST | `/analyze` | `{text}` | Full pipeline: normalized text, risk score and level, flagged phrases, threat type, entities, explanation, recommendation, debug scores |
+| POST | `/feedback` | `{text, score, confidence, correct_label, comment?}` | `{status}` |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/risk-score \
   -H "Content-Type: application/json" \
-  -d '{"text": "job available 50000 per week send processing fee"}'
+  -d '{"text": "job hai bhai 50000 per week fee bhejo"}'
 ```
 
-## Project Structure
+`debug_scores` reports the model score, the rule score and which one set the final score.
+
+## Model and data
+
+### Training
+
+| Setting | Value |
+|---|---|
+| Base model | `xlm-roberta-base` |
+| Adapter | LoRA on attention `query` and `value`, r = 16, α = 32, dropout 0.1, classifier head trained (4.5 MB) |
+| Optimisation | lr 2e-4, batch 16, up to 5 epochs, early stopping (patience 2, validation F1), class-weighted cross-entropy, FP16 on a Colab T4 |
+| Split | 70k train / 5k validation / 5k test, max length 128 tokens |
+| Calibration | Temperature scaling, grid search over 100 values in [0.5, 5.0] on validation: T = 1.41 |
+
+Training script: [`scripts/train_risk_model.py`](scripts/train_risk_model.py); full pipeline:
+[`notebooks/train_risk_model_colab.ipynb`](notebooks/train_risk_model_colab.ipynb).
+
+### Datasets
+
+| Dataset | Role |
+|---|---|
+| [`hafiz-hassaan-saeed/Roman-Urdu-Toxic-Corpus`](https://huggingface.co/datasets/hafiz-hassaan-saeed/Roman-Urdu-Toxic-Corpus) (72.7k) | Main toxic vs clean data (Roman Urdu) |
+| [`community-datasets/roman_urdu_hate_speech`](https://huggingface.co/datasets/community-datasets/roman_urdu_hate_speech) | Extra abusive examples (coarse-grained labels, inverted to 1 = toxic) |
+| [`hamza-amin/urdu-spam-dataset`](https://huggingface.co/datasets/hamza-amin/urdu-spam-dataset) | Spam examples |
+| [`scripts/generate_scam_data.py`](scripts/generate_scam_data.py) | 1,500 synthetic scam messages from 60 templates (815 unique); 7 scam types; 70% Roman Urdu, 30% Urdu script |
+| [`Mavkif/Roman-Urdu-Parl-split`](https://huggingface.co/datasets/Mavkif/Roman-Urdu-Parl-split) (6.37M pairs) | Source for an optional Roman → Urdu frequency map ([`scripts/build_normalizer_map.py`](scripts/build_normalizer_map.py)); built in Colab, not included in the repo |
+
+## Project structure
 
 ```
 UrduStack/
 ├── app/
-│   ├── main.py                  FastAPI entrypoint (+ CORS, static site mount)
-│   ├── api/endpoints.py         8 API routes
+│   ├── main.py                 FastAPI app, CORS, website at /
+│   ├── api/endpoints.py        8 API routes
 │   ├── models/
-│   │   ├── risk_model.py        LoRA risk scorer + max-ensemble
-│   │   ├── ner_model.py         NER wrapper
-│   │   └── model_manager.py     Orchestration, recommendation logic
+│   │   ├── model_manager.py    Loads models on first use; analyze_text() pipeline; advice
+│   │   ├── risk_model.py       LoRA scorer, max-of-two combination, word contributions
+│   │   └── ner_model.py        Named-entity extraction
 │   └── utils/
-│       ├── normalization.py     Code-switch normalization cascade
-│       ├── risk.py              Heuristic scorer, threat categorization
-│       ├── simplify.py          Plain-language simplification
-│       ├── transcription.py     Whisper speech-to-text
-│       └── pdf_report.py        Matplotlib-based PDF export
-├── scripts/                     Training, data prep, feedback consumption
-├── tests/                       46 unit tests + evaluation/adversarial harnesses
-├── docs/
-│   ├── diagrams/                6 SVG architecture/workflow diagrams
-│   ├── screenshots/             Real, captured UI screenshots
-│   ├── presentation/            10-slide hackathon deck (.pptx)
-│   └── report/                  Full technical report (.pdf)
-├── models/risk_lora/            Trained LoRA adapter (committed)
-├── playground.py                4-tab Gradio demo
-├── whatsapp_bot.py               Flask + Twilio WhatsApp bot
-├── static/index.html            Self-contained website
-└── app.py                       HF Spaces entrypoint (mounts everything)
+│       ├── risk.py             Rule layer and threat categories
+│       ├── normalization.py    Roman Urdu → Urdu script cascade
+│       ├── roman_urdu_map.py   481-word dictionary
+│       ├── rag_normalize.py    Character-trigram retrieval (FAISS)
+│       ├── transliterate.py    Phonetic fallback
+│       ├── simplify.py         Simplification lexicon
+│       ├── transcription.py    Whisper speech-to-text
+│       └── pdf_report.py       PDF export of an analysis
+├── models/risk_lora/           Trained LoRA adapter + tokenizer
+├── models/temperature.txt      Calibration temperature
+├── data/processed/             Retrieval phrase pairs
+├── scripts/                    Training, synthetic data, frequency map, feedback consumer
+├── notebooks/                  Colab training, evaluation and demo launcher
+├── tests/                      Unit tests, evaluation and adversarial scripts, committed results
+├── static/index.html           Website
+├── playground.py               Gradio playground
+├── whatsapp_bot.py             WhatsApp bot (Flask + Twilio)
+├── app.py                      Docker / Spaces entrypoint
+└── docs/                       Technical report, presentation, diagrams, screenshots
 ```
 
-## Testing & Validation
+## Testing
 
 ```bash
 pip install pytest
-pytest tests/test_unit.py -v         # 46 unit tests
-python tests/test_adversarial_ci.py  # heuristic regression suite (CI-gating)
+pytest tests/test_unit.py -v          # 46 unit tests
+python tests/test_adversarial_ci.py   # rule-layer regression suite
 ```
 
-- **46 pytest unit tests** — heuristic scorer, simplifier, preprocessor, typo correction, risk
-  categorization, loanword normalization, and a real PDF-generation regression test.
-- **Full evaluation against the real trained model**, not a subset or a mock:
-  `python tests/run_evaluation.py` (89.7% accuracy, 87.1% F1 on 107 examples).
-- **Adversarial red-team suite** re-verified against the deployed ensemble:
-  `python tests/run_adversarial_colab.py` (12/12).
-- **End-to-end validation performed directly**: a live Uvicorn server hit over real HTTP, the
-  WhatsApp bot's webhook exercised with a real POST request, and the Gradio playground driven with a
-  headless browser through a full analysis and PDF download.
+GitHub Actions runs both on every push, without the ML dependencies.
 
-Full methodology and results: [technical report, §16–18](docs/report/UrduStack_Technical_Report.pdf).
+Evaluating the trained model (needs PyTorch, Transformers, PEFT):
 
-## Real-World Benefits
+```bash
+python tests/run_evaluation.py            # 107-message evaluation set
+python tests/run_adversarial_colab.py     # 12 adversarial cases
+```
 
-- **Protects an underserved population** — Roman-Urdu speakers fall through the gap between
-  English-only moderation and Urdu-script-only tools.
-- **Explainable, not a black box** — users see *why* a message was flagged, which builds trust and
-  teaches pattern recognition over time.
-- **Meets people where scams land** — website, Gradio demo, and a WhatsApp bot, not locked behind a
-  developer-only API.
-- **Zero marginal cost, private by design** — self-hosted, no per-request fee, no third-party data
-  sharing.
-- **Extensible** — the same architecture applies to other code-switched, under-resourced languages,
-  and the multi-category detector already has synthetic training data for 7 scam types (3 currently
-  wired into the live categorizer).
+## Known limitations
 
-## Known Limitations
+**Detection**
+- Misses some direct threats (`jaan se maar doonga` → 0.10) and Roman-Urdu fee requests without English keywords.
+- Over-flags some short inputs: `salary` → 0.99, `50000 100000 25000` → 1.00, a university fee notice → 0.98.
+  Likely learned from number patterns in the synthetic scam templates.
+- The rule layer's fuzzy matching flags some everyday words (e.g. `karna`, `kaisa`, `mahina`, `thori`) as abusive,
+  because they are within one or two letters of a listed insult. Because the final score is the higher of the two detectors, these produce MEDIUM verdicts on
+  harmless messages.
+- Not yet evaluated on Urdu-script text.
 
-Reported with the same rigor as the results above — every number below is from a committed,
-reproducible test run, not an estimate.
+**Output**
+- Advice and explanations are in English.
+- The "plain language" Urdu explanation is produced by transliterating the English explanation and is not readable.
+- The confidence shown is the model's confidence even when the rule layer set the final score.
+- Normalization transliterates English words (English-word detection does not trigger), and its "confidence" is the
+  share of words changed, not accuracy.
+- Entity character offsets can be wrong when a dictionary entry expands to two words.
 
-- **A direct death threat scores low (0.10)**, even from the trained model — the single most
-  important open finding in this project. See
-  [`tests/novel_probe_results.csv`](tests/novel_probe_results.csv).
-- **Short-input false positives, not yet patched.** A legitimate university fee mention scores 0.98
-  HIGH; bare numbers score 1.00 HIGH; the single word "salary" scores 0.99. Not a "numbers" bug
-  specifically (`"12345"` alone scores 0.01) — deliberately left unpatched rather than adding a
-  keyword/length override that could suppress genuinely correct short-text catches elsewhere.
-- **NER extraction quality is uneven** on this pipeline's normalized text (it no longer gates any
-  safety message because of this — see the technical report, §9.2).
-- **Frequency map (Tier-1 normalization) is not shipped** — built on Colab from 6.37M sentences, too
-  large to commit; the system falls back to the 485-word static dictionary + FAISS retrieval.
-- **No formal head-to-head comparison against a frontier LLM** — the cost/latency/privacy advantages
-  above are structural; accuracy has not been measured side-by-side.
-- **WhatsApp bot is demo-time only** — functional and tested, not yet a persistent deployment.
-
-Full detail: [technical report, §19](docs/report/UrduStack_Technical_Report.pdf).
+**System**
+- No input-length limit; explanation re-scores the message once per word, so long inputs are slow.
+- The WhatsApp bot does not validate Twilio signatures and is not deployed as an always-on service.
+- `scripts/consume_feedback.py --merge_into` keeps the existing label when a corrected text is already in the training set.
+- No measured latency, Whisper accuracy or comparison against an LLM yet.
 
 ## Roadmap
 
-- [ ] Retrain the risk classifier with expanded short-text negative examples and threat vocabulary to
-      close the death-threat and short-input false-positive gaps.
-- [ ] Ship the full Tier-1 frequency map (or document it clearly as a Colab-only build step).
-- [ ] Deploy the WhatsApp bot as a persistent, always-on service.
-- [ ] Extend multi-category detection to the remaining 4 synthetic scam categories (lottery, charity,
-      investment, loan).
-- [ ] Run a reproducible head-to-head evaluation against a frontier LLM API.
-- [ ] Automate the active-learning feedback loop into a scheduled retraining pipeline with model
-      versioning.
+1. Independent test set including Urdu script, labelled by people outside the team.
+2. Retrain with threat vocabulary, real scam messages and varied harmless short texts.
+3. Restrict fuzzy matching to unknown words; fix English-word detection.
+4. Urdu and Roman-Urdu advice and explanations.
+5. Always-on deployment and a pilot with a job group or university career office.
+6. Benchmark against an LLM (e.g. Qwen) on the same evaluation set.
+
+## Report corrections
+
+The technical report was written at submission time. Where it differs from this README, this README is current:
+
+- The evaluation set is hand-written and partly used for tuning; it is not a held-out set.
+- The normalization dictionary has 481 entries and the retrieval index 597 phrases (report: 485 and 587).
+- LoRA is applied to `query` and `value` only; early stopping uses validation F1.
+- Normalization does not feed the classifier, and English words are not passed through unchanged.
+- Of the 11 new-phrase probes, 6 match some rule-layer keywords (report: "none").
+- Two of the 12 adversarial cases score MEDIUM rather than HIGH.
+- The playground has 3 tabs (report: 4); speech confidence is not computed.
 
 ## Contributors
 
 | Name | Role |
 |---|---|
-| **Shahoud Shahid** | Development |
-| **Munaza Tariq** | Development |
+| Munaza Tariq | Development |
+| Shahoud Shahid | Development |
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
